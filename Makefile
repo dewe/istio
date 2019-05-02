@@ -326,8 +326,6 @@ $(foreach ITEM,$(PILOT_GO_BINS_SHORT),$(eval $(call pilotbuild,$(ITEM))))
 .PHONY: istioctl
 istioctl ${ISTIO_OUT}/istioctl:
 	bin/gobuild.sh ${ISTIO_OUT}/istioctl ./istioctl/cmd/istioctl
-	${ISTIO_OUT}/istioctl collateral --bash && \
-	mv istioctl.bash ${ISTIO_OUT}/tools
 
 # Non-static istioctls. These are typically a build artifact.
 ${ISTIO_OUT}/istioctl-linux: depend
@@ -336,6 +334,11 @@ ${ISTIO_OUT}/istioctl-osx: depend
 	STATIC=0 GOOS=darwin  bin/gobuild.sh $@ ./istioctl/cmd/istioctl
 ${ISTIO_OUT}/istioctl-win.exe: depend
 	STATIC=0 GOOS=windows bin/gobuild.sh $@ ./istioctl/cmd/istioctl
+
+# generate the istioctl.bash completion file
+${ISTIO_OUT}/istioctl.bash: istioctl
+	${ISTIO_OUT}/istioctl collateral --bash && \
+	mv istioctl.bash ${ISTIO_OUT}/istioctl.bash
 
 MIXER_GO_BINS:=${ISTIO_OUT}/mixs ${ISTIO_OUT}/mixc
 mixc:
@@ -398,18 +401,22 @@ node_agent istio_ca:
 .PHONY: istioctl-all
 istioctl-all: ${ISTIO_OUT}/istioctl-linux ${ISTIO_OUT}/istioctl-osx ${ISTIO_OUT}/istioctl-win.exe
 
+.PHONY: istioctl.bash
+istioctl.bash: ${ISTIO_OUT}/istioctl.bash
+
 .PHONY: istio-archive
 
 istio-archive: ${ISTIO_OUT}/archive
 
 # TBD: how to capture VERSION, ISTIO_DOCKER_HUB, ISTIO_URL as dependencies
-${ISTIO_OUT}/archive: istioctl-all LICENSE README.md install/updateVersion.sh release/create_release_archives.sh
+${ISTIO_OUT}/archive: istioctl-all istioctl.bash LICENSE README.md install/updateVersion.sh release/create_release_archives.sh
 	rm -rf ${ISTIO_OUT}/archive
 	mkdir -p ${ISTIO_OUT}/archive/istioctl
 	cp ${ISTIO_OUT}/istioctl-* ${ISTIO_OUT}/archive/istioctl/
 	cp LICENSE ${ISTIO_OUT}/archive
 	cp README.md ${ISTIO_OUT}/archive
 	cp -r tools ${ISTIO_OUT}/archive
+	cp ${ISTIO_OUT}/istioctl.bash ${ISTIO_OUT}/archive/tools/
 	ISTIO_RELEASE=1 install/updateVersion.sh -a "$(ISTIO_DOCKER_HUB),$(VERSION)" \
 		-P "$(ISTIO_URL)/deb" \
 		-d "${ISTIO_OUT}/archive"
@@ -453,7 +460,7 @@ GOTEST_PARALLEL ?= '-test.parallel=1'
 GOTEST_P ?=
 GOSTATIC = -ldflags '-extldflags "-static"'
 
-TEST_APP_BINS:=${ISTIO_OUT}/pkg-test-application-echo-server ${ISTIO_OUT}/pkg-test-application-echo-client
+TEST_APP_BINS:=${ISTIO_OUT}/pkg-test-echo-cmd-server ${ISTIO_OUT}/pkg-test-echo-cmd-client
 .PHONY: $(TEST_APP_BINS)
 $(TEST_APP_BINS):
 	CGO_ENABLED=0 go build ${GOSTATIC} -o $@ istio.io/istio/$(subst -,/,$(@F))
@@ -502,6 +509,8 @@ security-test:
 .PHONY: common-test
 common-test:
 	go test ${T} ./pkg/...
+	# Execute bash shell unit tests scripts
+	./tests/scripts/scripts_test.sh
 
 .PHONY: selected-pkg-test
 selected-pkg-test:
